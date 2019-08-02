@@ -8,12 +8,8 @@ import string
 from random import random
 from shutil import copyfile
 
-# Using abc notation, from Bass-Clef C to Treble G
-majScale = ['C,', 'D,', 'E,', 'F,', 'G,', 'A,', 'B,', 'C', 'D', 'E', 'F', 'G', 'A', 'B', 'c', 'd', 'e', 'f', 'g']
-bRange = majScale[0:8]  # Closest I can get to the range of a bass
-tRange = majScale[1:11]  # Approximate range of a tenor
-aRange = majScale[7:15]  # Approximate range of an alto
-sRange = majScale[12:]  # Approximate range of a soprano
+# import music21 as m21
+from music21 import pitch, note, chord, scale, key, stream
 
 
 def add_note(func, inv, addTo):
@@ -39,7 +35,7 @@ def triad_range(func):
     return range(func, func + 5, 2)
 
 
-def I53_chords():
+def I53_chords(source):
     """Returns a list of supertonic triads in root position"""
     bPoss = []
     add_note(1, bRange, bPoss)
@@ -56,7 +52,7 @@ def I53_chords():
     return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
 
 
-def I64_chords():
+def I64_chords(source):
     """Returns a list of supertonic triads in second inversion"""
     bPoss = []
     add_note(5, bRange, bPoss)
@@ -73,7 +69,7 @@ def I64_chords():
     return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
 
 
-def ii53_chords():
+def ii53_chords(source):
     """Returns a list of supertonic triads in root position"""
     bPoss = []
     add_note(2, bRange, bPoss)
@@ -94,7 +90,7 @@ def IV_chords(inversion=0):
     """Returns a list of possible voicings for a subdominant triad"""
 
 
-def IV53_chords():
+def IV53_chords(source):
     """Returns a list of subdominant triads in root position"""
     # Calculate all possible notes for each voice
     bPoss = []
@@ -112,39 +108,66 @@ def IV53_chords():
     return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
 
 
-def V53_chords():
+def V53_chords(source):
     """Returns a list of possible voicings for a dominant triad in root position"""
     # Calculate all possible notes for each voice
     bPoss = []
-    add_note(5, bRange, bPoss)
+    add_note(5, source.brange, bPoss)
     tPoss = []
     for i in triad_range(5):
-        add_note(i, tRange, tPoss)
+        add_note(i, source.trange, tPoss)
     aPoss = []
     for i in triad_range(5):
-        add_note(i, aRange, aPoss)
+        add_note(i, source.arange, aPoss)
     sPoss = []
     for i in triad_range(5):
-        add_note(i, sRange, sPoss)
+        add_note(i, source.srange, sPoss)
 
     return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
 
 
-def vii6_chords():  # TODO touchy subject with the possibility of doubling the LT
+def vii6_chords(source):  # TODO touchy subject with the possibility of doubling the LT
     """Returns a list of possible voicings for a leading-tone triad in first inversion"""
     bPoss = []
-    add_note(2, bRange, bPoss)  # or 9
+    add_note(2, source.brange, bPoss)  # or 9
     tPoss = []
     for i in triad_range(7):
-        add_note(i, tRange, tPoss)
+        add_note(i, source.trange, tPoss)
     aPoss = []
     for i in triad_range(7):
-        add_note(i, aRange, aPoss)
+        add_note(i, source.arange, aPoss)
     sPoss = []
     for i in triad_range(7):
-        add_note(i, sRange, sPoss)
+        add_note(i, source.srange, sPoss)
 
     return Chord_Tree(bPoss, tPoss, aPoss, sPoss, inversion=6)
+
+
+class SourceSet(scale.ConcreteScale):
+    """Collection of pitches that will be used in a composition.
+       Knows voice ranges of SATB parts"""
+    def __init__(self, *args, **kwargs):
+        scale.ConcreteScale.__init__(*args, **kwargs)
+        self._b_range = self.getChord('g2', 'c4')  # appropriate pitches to define the range of a bass
+        self._t_range = self.getChord('d3', 'f4')  # tenor
+        self._a_range = self.getChord('c4', 'c5')  # alto
+        self._s_range = self.getChord('a4', 'g5')  # soprano
+
+    @property
+    def b_range(self):
+        return self._b_range.pitches
+
+    @property
+    def t_range(self):
+        return self._t_range.pitches
+
+    @property
+    def a_range(self):
+        return self._a_range.pitches
+
+    @property
+    def s_range(self):
+        return self._s_range.pitches
 
 
 class Chord_Tree(list):
@@ -185,11 +208,21 @@ class Chord_Tree(list):
                                 a.append(s)
 
 
-class Composition(list):
-    """Contains Chord_Trees as elements"""
-    def __init__(self):
-        list.__init__(self)
-        self.append(self._first_chord())
+class Composition(stream.Stream):
+    """Contains Chord_Trees as elements.
+       Knows information about its own source set"""
+    def __init__(self, src, *args, **kwargs):
+        stream.Stream.__init__(*args, **kwargs)
+        self._source_set = src
+        self._possible_chords = []
+
+    @property
+    def source_set(self):
+        return self._source_set
+
+    @property
+    def possible_chords(self):
+        return self._possible_chords
 
     def _first_chord(self):
         """Returns a random valid voicing of a tonic triad to start on"""
@@ -284,7 +317,10 @@ class Composition(list):
 
 
 def main(phrases=2):
-    composition = Composition()
+    cMajScale = SourceSet(tonic='c', pitches=['c3', 'd3', 'e3', 'f3', 'g3', 'a3', 'b3', 'c4', \
+        'd4', 'e4', 'f4', 'g4', 'a4', 'b4', 'c5', 'd5', 'e5', 'f5', 'g5'])
+     
+    composition = Composition(cMajScale)
 
     composition.predominant_function_chord()
     composition.predominant_function_chord()
@@ -306,7 +342,7 @@ def main(phrases=2):
 
     composition.realize()
     print(composition)
-    composition.write_to("composition.abc")
+    composition.write_to("composition2.abc")
 
 
 if __name__ == '__main__':
