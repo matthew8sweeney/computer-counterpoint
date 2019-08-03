@@ -5,7 +5,7 @@
 # feel more pertinent, but I feel like doing this rn, so I can call that into question.
 
 import string
-from random import random
+from random import random, choice
 from shutil import copyfile
 
 # import music21 as m21
@@ -147,7 +147,7 @@ class SourceSet(scale.ConcreteScale):
     """Collection of pitches that will be used in a composition.
        Knows voice ranges of SATB parts"""
     def __init__(self, *args, **kwargs):
-        scale.ConcreteScale.__init__(*args, **kwargs)
+        scale.ConcreteScale.__init__(self, *args, **kwargs)
         self._b_range = self.getChord('g2', 'c4')  # appropriate pitches to define the range of a bass
         self._t_range = self.getChord('d3', 'f4')  # tenor
         self._a_range = self.getChord('c4', 'c5')  # alto
@@ -170,49 +170,76 @@ class SourceSet(scale.ConcreteScale):
         return self._s_range.pitches
 
 
-class Chord_Tree(list):
-    """Build all chords that can theoretically result from these notes
-       Index 0 of each list (except the first level: bass) is a note,
-       and the succeeding indices are lists (except the last level: soprano)"""
+class ChordTree(list):
+    """Remembers possible pitches for each SATB voice in a chord
+       Index 0 of each contained list (except the first level/dimension: outside bass) is a note,
+       and the succeeding indices are lists (except the last level/dimension: soprano)"""
     def __init__(self, bPoss, tPoss, aPoss, sPoss, inversion=53):
         list.__init__(self)
-        for b in bPoss:
+        self._inversion = inversion
+        self._b_pitches = tuple(bPoss)
+        self._t_pitches = tuple(tPoss)
+        self._a_pitches = tuple(aPoss)
+        self._s_pitches = tuple(sPoss)
+
+    @property
+    def inversion(self):
+        return self._inversion
+
+    @property
+    def b_pitches(self):
+        return self._b_pitches
+
+    @property
+    def t_pitches(self):
+        return self._t_pitches
+
+    @property
+    def a_pitches(self):
+        return self._a_pitches
+
+    @property
+    def s_pitches(self):
+        return self._s_pitches
+
+    def take_tree_form(self):
+        """Expands the sets of possible notes into a tree structure
+           representing all possible combinations of choices of the pitches,
+           populating the list content of the object"""
+        for b in self.b_pitches:
             self.append([b])
 
         for b in self:
-            for t in tPoss:
+            for t in self.t_pitches:
                 b.append([t])
 
         for b in self:
             for t in b[1:]:  # Element 0 is the bass note
-                for a in aPoss:
-                    if inversion == 53:  # root position -- double the bass
-                        if a[0].lower() != t[0].lower():  # Avoid doubling tenor in alto
+                for a in self.a_pitches:
+                    if self.inversion == 53:  # root position -- double the bass
+                        if a.name != t[0].name:  # Avoid doubling tenor in alto
                             t.append([a])
-                    elif inversion == 6:  # first inv -- don't triple the third
-                        if not( a[0].lower() == b[0].lower() and
-                                a[0].lower() == t[0].lower() ):
+                    elif self.inversion == 6:  # first inv -- don't triple the third
+                        if not( a.name == b[0].name and a.name == t[0].name ):
                             t.append([a])
 
         for b in self:
             for t in b[1:]:
                 for a in t[1:]:
-                    for s in sPoss:
-                        if inversion == 53:
-                            if ( s[0].lower() != a[0].lower() and  # Avoid doubling tenor or alto in soprano
-                                 s[0].lower() != t[0].lower() ):
+                    for s in self.s_pitches:
+                        if self.inversion == 53:
+                            if ( s.name != a[0].name and s.name != t[0].name ): # Avoid doubling tenor or alto in soprano
                                 a.append(s)
-                        elif inversion == 6:  # Not perfect adherence to rules
-                            if ( s[0].lower() != a[0].lower() and
-                                 s[0].lower() != t[0].lower() ):
+                        elif self.inversion == 6:  # Not perfect adherence to rules
+                            if ( s.name != a[0].name and s.name != t[0].name ):
                                 a.append(s)
 
 
-class Composition(stream.Stream):
-    """Contains Chord_Trees as elements.
-       Knows information about its own source set"""
-    def __init__(self, src, *args, **kwargs):
-        stream.Stream.__init__(*args, **kwargs)
+class ComputerComposition(stream.Stream):
+    """Contains a ChordTree in possible_chords for each chord of piece.
+       Knows information about its own source set."""
+    def __init__(self, src=None, *args, **kwargs):
+        stream.Stream.__init__(self, *args, **kwargs)
         self._source_set = src
         self._possible_chords = []
 
@@ -267,8 +294,35 @@ class Composition(stream.Stream):
 
         return [bass, tenor, alto, soprano]
 
-    def tonic_function_chord(self):
-        self.append(I53_chords())
+    def tonic_chord_Maj(self):
+        possible_bass_notes = chord.Chord()
+        tonic = self.source_set.getTonic()
+        for p in self.source_set.b_range:
+            if p.name == tonic.name:
+                possible_bass_notes.add(pitch.Pitch(p))
+            
+        possible_tenor_notes = chord.Chord()
+        third = pitch.Pitch((tonic.pitchClass + 4) % 12)
+        fifth = pitch.Pitch((tonic.pitchClass + 7) % 12)
+        for p in self.source_set.t_range:
+            if p.name == tonic.name or p.name == third.name or p.name == fifth.name:
+                possible_tenor_notes.add(pitch.Pitch(p))
+
+        possible_alto_notes = chord.Chord()
+        for p in self.source_set.a_range:
+            if p.name == tonic.name or p.name == third.name or p.name == fifth.name:
+                possible_alto_notes.add(pitch.Pitch(p))
+
+        possible_soprano_notes = chord.Chord()
+        for p in self.source_set.s_range:
+            if p.name == tonic.name or p.name == third.name or p.name == fifth.name:
+                possible_soprano_notes.add(pitch.Pitch(p))
+
+        p_b = possible_bass_notes
+        p_t = possible_tenor_notes
+        p_a = possible_alto_notes
+        p_s = possible_soprano_notes 
+        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
 
     def predominant_function_chord(self):
         choice = int(random() * 2)  # Later 4
@@ -289,60 +343,49 @@ class Composition(stream.Stream):
 
     def realize(self):  # TODO maybe take adjacent chords into consideration here
         """Decide on which possible instance of each chord to actually write"""
-        for i, chord in enumerate(self):
-            if type(chord[0]) == list:
-                possibilities = 0  # Count the possibilities
-                for b in chord:
-                    for t in b[1:]:
-                        for a in t[1:]:
-                            possibilities += len(a) - 1
-                # Choose a random one (for now)
-                choice = int(random() * possibilities)
-                # Refactor eventually
-                possibility = 0
-                for b in chord:
-                    for t in b[1:]:
-                        for a in t[1:]:
-                            for s in a[1:]:
-                                if possibility == choice:
-                                    replacement = [b[0], t[0], a[0], s]
-                                possibility += 1
-                self[i] = replacement
+        for chord_tree in self.possible_chords:
+            chord_tree.take_tree_form()  # Expand possibilities for this chord tree
 
-    def write_to(self, filename):
-        copyfile("cmaj_template.txt", "composition.abc")
-        with open(filename, "a") as f:
-            for chord in self:
-                f.write(f"[{chord[0]}{chord[1]}{chord[2]}{chord[3]}] ")
+            b_list = choice(chord_tree)
+            bass = b_list[0]
+            t_list = choice(b_list[1:])
+            tenor = t_list[0]
+            a_list = choice(t_list[1:])
+            alto = a_list[0]
+            sop = choice(a_list[1:])
+
+            replacement = chord.Chord([bass, tenor, alto, sop])
+            self.append(replacement)
 
 
 def main(phrases=2):
     cMajScale = SourceSet(tonic='c', pitches=['c3', 'd3', 'e3', 'f3', 'g3', 'a3', 'b3', 'c4', \
         'd4', 'e4', 'f4', 'g4', 'a4', 'b4', 'c5', 'd5', 'e5', 'f5', 'g5'])
      
-    composition = Composition(cMajScale)
+    composition = ComputerComposition(cMajScale)
 
-    composition.predominant_function_chord()
-    composition.predominant_function_chord()
-    composition.dominant_function_chord()
-    composition.tonic_function_chord()
-    composition.predominant_function_chord()
+    composition.tonic_chord_Maj()  # for testing
 
-    for _i in range(phrases - 1):  # TODO Eventually generate middle material
-        composition.predominant_function_chord()
-        composition.dominant_function_chord()
-        composition.tonic_function_chord()
-        composition.predominant_function_chord()
-        composition.dominant_function_chord()
-        composition.dominant_function_chord()
-        composition.tonic_function_chord()
-        composition.predominant_function_chord()
+    # composition.predominant_function_chord()
+    # composition.predominant_function_chord()
+    # composition.dominant_function_chord()
+    # composition.tonic_chord_Maj()
+    # composition.predominant_function_chord()
 
-    composition.PACadence()  # End on a perfect authentic cadence
+    # for _i in range(phrases - 1):  # TODO Eventually generate middle material
+    #     composition.predominant_function_chord()
+    #     composition.dominant_function_chord()
+    #     composition.tonic_chord_Maj()
+    #     composition.predominant_function_chord()
+    #     composition.dominant_function_chord()
+    #     composition.dominant_function_chord()
+    #     composition.tonic_chord_Maj()
+    #     composition.predominant_function_chord()
+
+    # composition.PACadence()  # End on a perfect authentic cadence
 
     composition.realize()
-    print(composition)
-    composition.write_to("composition2.abc")
+    composition.write("musicxml", "CompositionV2.xml")
 
 
 if __name__ == '__main__':
