@@ -5,34 +5,12 @@
 # feel more pertinent, but I feel like doing this rn, so I can call that into question.
 
 import string
+from base64 import b64encode
 from random import random, choice
 from shutil import copyfile
+from time import time
 
-# import music21 as m21
-from music21 import pitch, note, chord, scale, key, stream
-
-
-def add_note(func, inv, addTo):
-    """Returns a note of harmonic function func (1-7) from pitch inventory inv to list addTo"""
-    func = (func - 1) % 7  # Easier to index with 0-6 than 1-7
-    i = 0
-    while string.ascii_lowercase[i] != inv[0][0].lower():
-        i += 1
-    phase = i  # Offset of inv's starting pitch from 'a' in the alphabet
-    j = 0
-    while inv[j][0].lower() != majScale[0][0].lower():
-        j += 1
-    phase = (phase + j) % 7  # Adapt for offset of inv's starting pitch from tonic
-
-    # if func == 6: print("func is 6")
-    # Append notes with the correct letter
-    for pitch in inv:
-        if pitch[0].lower() == string.ascii_lowercase[(func + phase) % 7]:
-            addTo.append(pitch)
-
-
-def triad_range(func):
-    return range(func, func + 5, 2)
+from music21 import pitch, note, chord, scale, key, stream, metadata
 
 
 def I64_chords(source):
@@ -47,45 +25,6 @@ def I64_chords(source):
         add_note(i, aRange, aPoss)
     sPoss = []
     for i in triad_range(1):
-        add_note(i, sRange, sPoss)
-
-    return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
-
-
-def ii53_chords(source):
-    """Returns a list of supertonic triads in root position"""
-    bPoss = []
-    add_note(2, bRange, bPoss)
-    tPoss = []
-    for i in triad_range(2):
-        add_note(i, tRange, tPoss)
-    aPoss = []
-    for i in triad_range(2):
-        add_note(i, aRange, aPoss)
-    sPoss = []
-    for i in triad_range(2):
-        add_note(i, sRange, sPoss)
-
-    return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
-
-
-def IV_chords(inversion=0):
-    """Returns a list of possible voicings for a subdominant triad"""
-
-
-def IV53_chords(source):
-    """Returns a list of subdominant triads in root position"""
-    # Calculate all possible notes for each voice
-    bPoss = []
-    add_note(4, bRange, bPoss)
-    tPoss = []
-    for i in triad_range(4):
-        add_note(i, tRange, tPoss) 
-    aPoss = []
-    for i in triad_range(4):
-        add_note(i, aRange, aPoss) 
-    sPoss = []
-    for i in triad_range(4):
         add_note(i, sRange, sPoss)
 
     return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
@@ -261,115 +200,148 @@ class ComputerComposition(stream.Stream):
     def possible_chords(self):
         return self._possible_chords
 
+    def _select_135_from(self, p_ambitus):
+        """Return tuple of possible pitches from Major tonic triad"""
+        __tonic = self.source_set.getTonic()
+        __third = pitch.Pitch((__tonic.pitchClass + 4) % 12)
+        __fifth = pitch.Pitch((__tonic.pitchClass + 7) % 12)
+        possible_pitches = tuple()
+        for p in p_ambitus:
+            if p.name == __tonic.name or p.name == __third.name or p.name == __fifth.name:
+                possible_pitches += (p,)
+        return possible_pitches
+
+    def _select_246_from(self, p_ambitus):
+        """Return tuple of possible pitches from minor supertonic triad"""
+        __tonic = self.source_set.getTonic()
+        __second = pitch.Pitch((__tonic.pitchClass + 2) %12)
+        __fourth = pitch.Pitch((__tonic.pitchClass + 5) % 12)
+        __sixth = pitch.Pitch((__tonic.pitchClass + 9) % 12)
+        possible_pitches = tuple()
+        for p in p_ambitus:
+            if p.name == __second.name or p.name == __fourth.name or p.name == __sixth.name:
+                possible_pitches += (p,)
+        return possible_pitches
+
+    def _select_468_from(self, p_ambitus):
+        """Return tuple of possible pitches from Major subdominant triad"""
+        __tonic = self.source_set.getTonic()
+        __fourth = pitch.Pitch((__tonic.pitchClass + 5) % 12)
+        __sixth = pitch.Pitch((__tonic.pitchClass + 9) % 12)
+        possible_pitches = tuple()
+        for p in p_ambitus:
+            if p.name == __tonic.name or p.name == __fourth.name or p.name == __sixth.name:
+                possible_pitches += (p,)
+        return possible_pitches
+
+    def _select_halfsteps(self, p_ambitus, *halfsteps):
+        """Return tuple of pitches within p_ambitus that alighn with specified
+        half-steps of the composition's source set (0:tonic, 1:m2nd, 2:M2nd, 3:m3rd, etc.)
+        e.g. _select_halfsteps(<ambitus>, 0, 4, 7) for members of tonic M triad"""
+        tonic_pitchclass = self.source_set.getTonic().pitchClass
+        possible_pitches = tuple()
+        halfstep_pitchclasses = []
+        for halfstep in halfsteps:
+            halfstep_pitchclasses.append(halfstep + tonic_pitchclass)
+        for p in p_ambitus:
+            if p.pitchClass in halfstep_pitchclasses:
+                possible_pitches += (p,)
+        return possible_pitches
+
+    
     def tonic_chord_maj(self):
         """Append a major tonic ChordTree to self"""
         possible_bass_notes = chord.Chord()
-        tonic = self.source_set.getTonic()
+        _tonic = self.source_set.getTonic()
         for p in self.source_set.b_range:
-            if p.name == tonic.name:
+            if p.name == _tonic.name:
                 possible_bass_notes.add(pitch.Pitch(p))
             
-        possible_tenor_notes = chord.Chord()
-        third = pitch.Pitch((tonic.pitchClass + 4) % 12)
-        fifth = pitch.Pitch((tonic.pitchClass + 7) % 12)
-        for p in self.source_set.t_range:
-            if p.name == tonic.name or p.name == third.name or p.name == fifth.name:
-                possible_tenor_notes.add(pitch.Pitch(p))
-
-        possible_alto_notes = chord.Chord()
-        for p in self.source_set.a_range:
-            if p.name == tonic.name or p.name == third.name or p.name == fifth.name:
-                possible_alto_notes.add(pitch.Pitch(p))
-
-        possible_soprano_notes = chord.Chord()
-        for p in self.source_set.s_range:
-            if p.name == tonic.name or p.name == third.name or p.name == fifth.name:
-                possible_soprano_notes.add(pitch.Pitch(p))
+        possible_tenor_notes = self._select_halfsteps(self.source_set.t_range, 0, 4, 7)
+        possible_alto_notes = self._select_halfsteps(self.source_set.a_range, 0, 4, 7)
+        possible_sop_notes = self._select_halfsteps(self.source_set.s_range, 0, 4, 7)
 
         p_b = possible_bass_notes
         p_t = possible_tenor_notes
         p_a = possible_alto_notes
-        p_s = possible_soprano_notes 
-        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
-
-    def subdominant_chord_maj(self):
-        """Append a major subdominant ChordTree to self"""  # Currently only in root pos
-        tonic = self.source_set.getTonic()
-        fourth = pitch.Pitch((tonic.pitchClass + 5) % 12)
-        sixth = pitch.Pitch((tonic.pitchClass + 9) % 12)
-
-        possible_bass_notes = chord.Chord()
-        for bp in self.source_set.b_range:
-            if bp.name == fourth.name:
-                possible_bass_notes.add(pitch.Pitch(bp))
-            
-        possible_tenor_notes = chord.Chord()
-        for tp in self.source_set.t_range:
-            if tp.name == tonic.name or tp.name == fourth.name or tp.name == sixth.name:
-                possible_tenor_notes.add(pitch.Pitch(tp))
-
-        possible_alto_notes = chord.Chord()
-        for ap in self.source_set.a_range:
-            if ap.name == tonic.name or ap.name == fourth.name or ap.name == sixth.name:
-                possible_alto_notes.add(pitch.Pitch(ap))
-
-        possible_soprano_notes = chord.Chord()
-        for sp in self.source_set.s_range:
-            if sp.name == tonic.name or sp.name == fourth.name or sp.name == sixth.name:
-                possible_soprano_notes.add(pitch.Pitch(sp))
-
-        p_b = possible_bass_notes
-        p_t = possible_tenor_notes
-        p_a = possible_alto_notes
-        p_s = possible_soprano_notes 
+        p_s = possible_sop_notes 
         self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
 
     def supertonic_chord_min(self):
         """Append a minor supertonic ChordTree to self"""  # Currently only in root pos
-        tonic = self.source_set.getTonic()
-        stonic = pitch.Pitch((tonic.pitchClass + 2) % 12)
-        fourth = pitch.Pitch((tonic.pitchClass + 5) % 12)
-        sixth = pitch.Pitch((tonic.pitchClass + 9) % 12)
+        _tonic = self.source_set.getTonic()
+        _stonic = pitch.Pitch(_tonic.pitchClass + 2)
 
         possible_bass_notes = chord.Chord()
         for bp in self.source_set.b_range:
-            if bp.name == stonic.name:
+            if bp.name == _stonic.name:
                 possible_bass_notes.add(pitch.Pitch(bp))
             
-        possible_tenor_notes = chord.Chord()
-        for tp in self.source_set.t_range:
-            if tp.name == stonic.name or tp.name == fourth.name or tp.name == sixth.name:
-                possible_tenor_notes.add(pitch.Pitch(tp))
-
-        possible_alto_notes = chord.Chord()
-        for ap in self.source_set.a_range:
-            if ap.name == stonic.name or ap.name == fourth.name or ap.name == sixth.name:
-                possible_alto_notes.add(pitch.Pitch(ap))
-
-        possible_soprano_notes = chord.Chord()
-        for sp in self.source_set.s_range:
-            if sp.name == stonic.name or sp.name == fourth.name or sp.name == sixth.name:
-                possible_soprano_notes.add(pitch.Pitch(sp))
+        possible_tenor_notes = self._select_halfsteps(self.source_set.t_range, 2, 5, 9)
+        possible_alto_notes = self._select_halfsteps(self.source_set.a_range, 2, 5, 9)
+        possible_sop_notes = self._select_halfsteps(self.source_set.s_range, 2, 5, 9)
 
         p_b = possible_bass_notes
         p_t = possible_tenor_notes
         p_a = possible_alto_notes
-        p_s = possible_soprano_notes 
+        p_s = possible_sop_notes 
+        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
+
+    def subdominant_chord_maj(self):
+        """Append a major subdominant ChordTree to self"""  # Currently only in root pos
+        _tonic = self.source_set.getTonic()
+        _fourth = pitch.Pitch(_tonic.pitchClass + 5)
+
+        possible_bass_notes = chord.Chord()
+        for bp in self.source_set.b_range:
+            if bp.name == _fourth.name:
+                possible_bass_notes.add(pitch.Pitch(bp))
+        
+        possible_tenor_notes = self._select_halfsteps(self.source_set.t_range, 5, 9, 0)
+        possible_alto_notes = self._select_halfsteps(self.source_set.a_range, 5, 9, 0)
+        possible_sop_notes = self._select_halfsteps(self.source_set.s_range, 5, 9, 0)
+
+        p_b = possible_bass_notes
+        p_t = possible_tenor_notes
+        p_a = possible_alto_notes
+        p_s = possible_sop_notes 
+        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
+
+    def dominant_chord_maj(self):
+        """Append a major dominant ChordTree to self"""  # Currently only in root pos
+        _tonic = self.source_set.getTonic()
+        _fourth = pitch.Pitch(_tonic.pitchClass + 5)
+
+        possible_bass_notes = chord.Chord()
+        for bp in self.source_set.b_range:
+            if bp.name == _fourth.name:
+                possible_bass_notes.add(pitch.Pitch(bp))
+        
+        possible_tenor_notes = self._select_halfsteps(self.source_set.t_range, 7, 11, 2)
+        possible_alto_notes  = self._select_halfsteps(self.source_set.a_range, 7, 11, 2)
+        possible_sop_notes   = self._select_halfsteps(self.source_set.s_range, 7, 11, 2)
+
+        p_b = possible_bass_notes
+        p_t = possible_tenor_notes
+        p_a = possible_alto_notes
+        p_s = possible_sop_notes 
         self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
 
     def predominant_function_chord(self):
-        chord_gen = choice((self.subdominant_chord_maj, self.supertonic_chord_min))  # Later 4
+        chord_gen = choice((
+            self.subdominant_chord_maj,
+            self.supertonic_chord_min))  # Later 4
         chord_gen()
 
     def dominant_function_chord(self):
-        choice = int(random() * 1)
-        if choice == 0:
-            self.append(V53_chords())
+        chord_gen = choice((
+            self.dominant_chord_maj,))
+        chord_gen()
 
     def PACadence(self):  # TODO Write a perfect authentic cadence (even a simple one)
         self.append(I64_chords())
-        self.append(V53_chords())
-        self.append(I53_chords())
+        self.dominant_chord_maj()
+        self.tonic_chord_maj()
 
     def realize_tree(self):  # TODO maybe take adjacent chords into consideration here
         """Decide on which possible instance of each chord to actually write.
@@ -409,10 +381,8 @@ def main(phrases=2):
 
     composition.predominant_function_chord()
     composition.predominant_function_chord()
-
-    # composition.dominant_function_chord()
-    # composition.tonic_chord_maj()
-    # composition.predominant_function_chord()
+    composition.dominant_function_chord()
+    composition.tonic_chord_maj()
 
     # for _i in range(phrases - 1):  # TODO Eventually generate middle material
     #     composition.predominant_function_chord()
@@ -427,7 +397,14 @@ def main(phrases=2):
     # composition.PACadence()  # End on a perfect authentic cadence
 
     composition.realize()
+
+    # Add metadata
+    composition.insert(0, metadata.Metadata())
+    composition.metadata.title = b64encode(str(time()).encode("ascii")).decode("ascii")  # Showy title
+    composition.metadata.composer = "Computer"
+
     composition.write("musicxml", "CompositionV2.xml")
+    print("done")
 
 
 if __name__ == '__main__':
