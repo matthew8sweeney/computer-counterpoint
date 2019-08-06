@@ -10,42 +10,7 @@ from random import random, choice
 from shutil import copyfile
 from time import time
 
-from music21 import pitch, note, chord, scale, key, stream, metadata
-
-
-def I64_chords(source):
-    """Returns a list of tonic triads in second inversion"""
-    bPoss = []
-    add_note(5, bRange, bPoss)
-    tPoss = []
-    for i in triad_range(1):
-        add_note(i, tRange, tPoss)
-    aPoss = []
-    for i in triad_range(1):
-        add_note(i, aRange, aPoss)
-    sPoss = []
-    for i in triad_range(1):
-        add_note(i, sRange, sPoss)
-
-    return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
-
-
-def V53_chords(source):
-    """Returns a list of possible voicings for a dominant triad in root position"""
-    # Calculate all possible notes for each voice
-    bPoss = []
-    add_note(5, source.brange, bPoss)
-    tPoss = []
-    for i in triad_range(5):
-        add_note(i, source.trange, tPoss)
-    aPoss = []
-    for i in triad_range(5):
-        add_note(i, source.arange, aPoss)
-    sPoss = []
-    for i in triad_range(5):
-        add_note(i, source.srange, sPoss)
-
-    return Chord_Tree(bPoss, tPoss, aPoss, sPoss)
+from music21 import pitch, note, duration, chord, scale, key, stream, metadata
 
 
 def vii6_chords(source):  # TODO touchy subject with the possibility of doubling the LT
@@ -129,7 +94,8 @@ class ChordTree(list):
         with the given bass note"""
         valid_pitches = tuple()
         for tenor in self.t_pitches:
-            valid_pitches += (tenor,)
+            if tenor.midi >= bass.midi:
+                valid_pitches += (tenor,)
         return valid_pitches
 
     def filter_a(self, bass, tenor):
@@ -137,7 +103,11 @@ class ChordTree(list):
         valid_pitches = tuple()
         for alto in self.a_pitches:
             if self.inversion == 53:
-                if alto.name != tenor.name:  # Avoid doubling tenor
+                if alto.midi >= tenor.midi and \
+                    alto.pitchClass != tenor.pitchClass:  # Avoid doubling tenor
+                    valid_pitches += (alto,)
+            elif self.inversion == 64:  # 2nd Inv
+                if True:
                     valid_pitches += (alto,)
         return valid_pitches
 
@@ -147,7 +117,12 @@ class ChordTree(list):
         valid_pitches = tuple()
         for sop in self.s_pitches:
             if self.inversion == 53:
-                if sop.name != alto.name and sop.name != tenor.name:  # Avoid doubling tenor or alto
+                if sop.midi >= alto.midi and \
+                    sop.pitchClass != alto.pitchClass and \
+                    sop.pitchClass != tenor.pitchClass:  # Avoid doubling tenor or alto
+                    valid_pitches += (sop,)
+            elif self.inversion == 64:  # 2nd Inv
+                if True:
                     valid_pitches += (sop,)
         return valid_pitches
 
@@ -200,40 +175,6 @@ class ComputerComposition(stream.Stream):
     def possible_chords(self):
         return self._possible_chords
 
-    def _select_135_from(self, p_ambitus):
-        """Return tuple of possible pitches from Major tonic triad"""
-        __tonic = self.source_set.getTonic()
-        __third = pitch.Pitch((__tonic.pitchClass + 4) % 12)
-        __fifth = pitch.Pitch((__tonic.pitchClass + 7) % 12)
-        possible_pitches = tuple()
-        for p in p_ambitus:
-            if p.name == __tonic.name or p.name == __third.name or p.name == __fifth.name:
-                possible_pitches += (p,)
-        return possible_pitches
-
-    def _select_246_from(self, p_ambitus):
-        """Return tuple of possible pitches from minor supertonic triad"""
-        __tonic = self.source_set.getTonic()
-        __second = pitch.Pitch((__tonic.pitchClass + 2) %12)
-        __fourth = pitch.Pitch((__tonic.pitchClass + 5) % 12)
-        __sixth = pitch.Pitch((__tonic.pitchClass + 9) % 12)
-        possible_pitches = tuple()
-        for p in p_ambitus:
-            if p.name == __second.name or p.name == __fourth.name or p.name == __sixth.name:
-                possible_pitches += (p,)
-        return possible_pitches
-
-    def _select_468_from(self, p_ambitus):
-        """Return tuple of possible pitches from Major subdominant triad"""
-        __tonic = self.source_set.getTonic()
-        __fourth = pitch.Pitch((__tonic.pitchClass + 5) % 12)
-        __sixth = pitch.Pitch((__tonic.pitchClass + 9) % 12)
-        possible_pitches = tuple()
-        for p in p_ambitus:
-            if p.name == __tonic.name or p.name == __fourth.name or p.name == __sixth.name:
-                possible_pitches += (p,)
-        return possible_pitches
-
     def _select_halfsteps(self, p_ambitus, *halfsteps):
         """Return tuple of pitches within p_ambitus that alighn with specified
         half-steps of the composition's source set (0:tonic, 1:m2nd, 2:M2nd, 3:m3rd, etc.)
@@ -247,15 +188,19 @@ class ComputerComposition(stream.Stream):
             if p.pitchClass in halfstep_pitchclasses:
                 possible_pitches += (p,)
         return possible_pitches
-
     
-    def tonic_chord_maj(self):
+    def tonic_chord_maj(self, inv=53):
         """Append a major tonic ChordTree to self"""
-        possible_bass_notes = chord.Chord()
+        possible_bass_notes = []
         _tonic = self.source_set.getTonic()
-        for p in self.source_set.b_range:
-            if p.name == _tonic.name:
-                possible_bass_notes.add(pitch.Pitch(p))
+        if inv == 53:
+            for p in self.source_set.b_range:
+                if p.name == _tonic.name:
+                    possible_bass_notes.append(pitch.Pitch(p))
+        elif inv == 64:
+            for p in self.source_set.b_range:
+                if p.pitchClass == (_tonic.pitchClass + 7) % 12:
+                    possible_bass_notes.append(pitch.Pitch(p))
             
         possible_tenor_notes = self._select_halfsteps(self.source_set.t_range, 0, 4, 7)
         possible_alto_notes = self._select_halfsteps(self.source_set.a_range, 0, 4, 7)
@@ -265,17 +210,17 @@ class ComputerComposition(stream.Stream):
         p_t = possible_tenor_notes
         p_a = possible_alto_notes
         p_s = possible_sop_notes 
-        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
+        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s, inv))
 
-    def supertonic_chord_min(self):
+    def supertonic_chord_min(self, inv=53):
         """Append a minor supertonic ChordTree to self"""  # Currently only in root pos
         _tonic = self.source_set.getTonic()
         _stonic = pitch.Pitch(_tonic.pitchClass + 2)
 
-        possible_bass_notes = chord.Chord()
+        possible_bass_notes = []
         for bp in self.source_set.b_range:
             if bp.name == _stonic.name:
-                possible_bass_notes.add(pitch.Pitch(bp))
+                possible_bass_notes.append(pitch.Pitch(bp))
             
         possible_tenor_notes = self._select_halfsteps(self.source_set.t_range, 2, 5, 9)
         possible_alto_notes = self._select_halfsteps(self.source_set.a_range, 2, 5, 9)
@@ -285,17 +230,17 @@ class ComputerComposition(stream.Stream):
         p_t = possible_tenor_notes
         p_a = possible_alto_notes
         p_s = possible_sop_notes 
-        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
+        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s, inv))
 
-    def subdominant_chord_maj(self):
+    def subdominant_chord_maj(self, inv=53):
         """Append a major subdominant ChordTree to self"""  # Currently only in root pos
         _tonic = self.source_set.getTonic()
         _fourth = pitch.Pitch(_tonic.pitchClass + 5)
 
-        possible_bass_notes = chord.Chord()
+        possible_bass_notes = []
         for bp in self.source_set.b_range:
             if bp.name == _fourth.name:
-                possible_bass_notes.add(pitch.Pitch(bp))
+                possible_bass_notes.append(pitch.Pitch(bp))
         
         possible_tenor_notes = self._select_halfsteps(self.source_set.t_range, 5, 9, 0)
         possible_alto_notes = self._select_halfsteps(self.source_set.a_range, 5, 9, 0)
@@ -305,17 +250,17 @@ class ComputerComposition(stream.Stream):
         p_t = possible_tenor_notes
         p_a = possible_alto_notes
         p_s = possible_sop_notes 
-        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s))
+        self.possible_chords.append(ChordTree(p_b, p_t, p_a, p_s, inv))
 
     def dominant_chord_maj(self):
         """Append a major dominant ChordTree to self"""  # Currently only in root pos
         _tonic = self.source_set.getTonic()
         _fourth = pitch.Pitch(_tonic.pitchClass + 5)
 
-        possible_bass_notes = chord.Chord()
+        possible_bass_notes = []
         for bp in self.source_set.b_range:
             if bp.name == _fourth.name:
-                possible_bass_notes.add(pitch.Pitch(bp))
+                possible_bass_notes.append(pitch.Pitch(bp))
         
         possible_tenor_notes = self._select_halfsteps(self.source_set.t_range, 7, 11, 2)
         possible_alto_notes  = self._select_halfsteps(self.source_set.a_range, 7, 11, 2)
@@ -339,7 +284,7 @@ class ComputerComposition(stream.Stream):
         chord_gen()
 
     def PACadence(self):  # TODO Write a perfect authentic cadence (even a simple one)
-        self.append(I64_chords())
+        self.tonic_chord_maj(64)
         self.dominant_chord_maj()
         self.tonic_chord_maj()
 
@@ -361,14 +306,45 @@ class ComputerComposition(stream.Stream):
             self.append(replacement)
 
     def realize(self):
-        for poss_chord in self.possible_chords:  # For each chord in the composition
+        # Would make sense to insert parts in __init__ but breaks music21 when writing
+        for _i in range(2):
+            self.insert(0, stream.PartStaff())
+
+        halfnote_chances = {
+            len(self.possible_chords) - 1: 0.9,
+            len(self.possible_chords) - 2: 0.65,
+            len(self.possible_chords) - 3: 0.65,
+        }
+        past_halfnotes = 0
+
+        for i, poss_chord in enumerate(self.possible_chords):  # For each chord in the composition
             b = choice(poss_chord.b_pitches)
             t = choice(poss_chord.filter_t(b))
             a = choice(poss_chord.filter_a(b, t))
             s = choice(poss_chord.filter_s(b, t, a))
 
-            current_chord = chord.Chord([b, t, a, s])
-            self.append(current_chord)
+            current_chord_treb = chord.Chord([a, s])
+            current_chord_bass = chord.Chord([b, t])
+
+            # Calculate duration offset from beginneing b/c Stream.append() cannot always get it right
+            extra_offset_treb = extra_offset_bass = 0 + past_halfnotes
+
+            if i in halfnote_chances:  # If the current chord may become a half note
+                if random() < halfnote_chances[i]:
+                    current_chord_bass.duration.type = "half"
+                    current_chord_treb.duration.type = "half"
+                    past_halfnotes += 1
+            elif random() < 0.2 and i > 0:  # If this chord is not a potential half note dotted-quarter/eigth
+                current_chord_treb.duration.quarterLength -= 0.5
+                self.elements[0][i-1].duration.quarterLength += 0.5
+                extra_offset_treb += 0.5
+            # elif random() < 0.15 and i > 0:  # Bass eigth/dotted-quarter
+            #     current_chord_bass.duration.quarterLength += 0.5
+            #     self.elements[1][i-1].duration.quarterLength -= 0.5
+            #     extra_offset_bass -= 0.5
+
+            self.elements[0].insert(i + extra_offset_treb, current_chord_treb)
+            self.elements[1].insert(i + extra_offset_bass, current_chord_bass)
 
 
 def main(phrases=2):
@@ -394,16 +370,17 @@ def main(phrases=2):
     #     composition.tonic_chord_maj()
     #     composition.predominant_function_chord()
 
-    # composition.PACadence()  # End on a perfect authentic cadence
+    composition.PACadence()  # End on a perfect authentic cadence
 
     composition.realize()
 
     # Add metadata
     composition.insert(0, metadata.Metadata())
-    composition.metadata.title = b64encode(str(time()).encode("ascii")).decode("ascii")  # Showy title
-    composition.metadata.composer = "Computer"
+    # Showy title
+    composition.metadata.title = "Music Fragment " + b64encode(str(time()).encode("ascii")).decode("ascii")
+    composition.metadata.composer = "Composed by Computer"
 
-    composition.write("musicxml", "CompositionV2.xml")
+    composition.write("musicxml", "Composition.xml")
     print("done")
 
 
